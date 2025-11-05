@@ -5,6 +5,7 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.KTable;
 import org.apache.kafka.streams.kstream.Named;
@@ -14,6 +15,22 @@ import java.util.Arrays;
 import java.util.Properties;
 
 public class WordCountApp {
+
+    public Topology createTopology(){
+        StreamsBuilder builder = new StreamsBuilder();
+
+        //stream from kafka
+        KStream<String, String> wordCountInput = builder.stream("word-count-input");
+        KTable<String, Long> wordCounts =  wordCountInput.mapValues(value -> value.toLowerCase()) //map the values 2 lower case
+                .flatMapValues(value-> Arrays.asList(value.split(" "))) //flatmap values split by space
+                .selectKey((key, value)-> value) //select key to apply a key (discard the old key)
+                .groupByKey() //group by key before aggregation
+                .count(Named.as("Counts")); //count occurrences
+        wordCounts.toStream().to("word-count-output", Produced.with(Serdes.String(), Serdes.Long()));
+
+        return builder.build();
+    }
+
     public static void main(String[] args) {
         Properties config = new Properties();
         config.put(StreamsConfig.APPLICATION_ID_CONFIG,"word_count");
@@ -22,18 +39,9 @@ public class WordCountApp {
         config.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
         config.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG,Serdes.String().getClass());
 
-        StreamsBuilder builder = new StreamsBuilder();
+        WordCountApp wordCountApp = new WordCountApp();
 
-        //stream from kafka
-        KStream<String, String> wordCountInput = builder.stream("word-count-input");
-        KTable<String, Long> wordCounts =  wordCountInput.mapValues(value -> value.toLowerCase()) //map the values 2 lower case
-                .flatMapValues(value-> Arrays.asList(value.split(" "))) //flatmap values split by space
-                                                        .selectKey((key, value)-> value) //select key to apply a key (discard the old key)
-                                                        .groupByKey() //group by key before aggregation
-                                                        .count(Named.as("Counts")); //count occurrences
-        wordCounts.toStream().to("word-count-output", Produced.with(Serdes.String(), Serdes.Long()));
-
-        KafkaStreams streams = new KafkaStreams(builder.build(), config);
+        KafkaStreams streams = new KafkaStreams(wordCountApp.createTopology(), config);
         streams.start();
         System.out.println(streams);
 
